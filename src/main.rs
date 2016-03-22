@@ -31,13 +31,22 @@ return value in register
 */
 fn get_reg(operand: u16, register:&Vec<u16>) -> u16 {
 	register[(operand - REG_OFFSET) as usize]
+	//(operand - REG_OFFSET) as u16
 }
 
 fn get_opcode_debug_string(adr:usize, memory: &Vec<u16>, register:&Vec<u16>) -> String {
-
+	//println!("adr = {}, op = {}, adr+1 = {}, adr+2 = {}", adr, memory[adr], memory[adr+1], memory[adr+2]);
 	match memory[adr] {
 		1 => { // set reg a to the value of b
-			format!("set w{} to {}", get_reg(memory[adr], register), memory[adr+1])
+			format!("set w{} to {}", memory[adr], memory[adr+1])
+		}
+
+		2 => { // push a onto the stack
+			format!("push {} onto stack", memory[adr+1])
+		}
+
+		4 => {
+			format!("set {} to 1 if {} == {}, else 0", memory[adr+1], memory[adr+2], memory[adr+3])
 		}
 		6 => { // jmp to
 			format!("jmp to {}", get_val(memory[adr+1], register))
@@ -80,7 +89,7 @@ fn call_trace(v: &[usize], ptr: usize, memory: Vec<u16>, pc: usize, register:&Ve
 			ts = format!(" <------ trace pointer");
 		}*/
 		//let mut s = format!("pc = {}\top = {}\t\t{}\t{}",trace_pc, memory[trace_pc], get_opcode_debug_string(trace_pc, &memory, register), ts);
-		let mut s = format!("{:<7}{:<7}{:<7}{:<30}|",trace_pc, memory[trace_pc], get_opcode_debug_string(trace_pc, &memory, register), ts);
+		let mut s = format!("{:<7}{:<7}{:<7}{:<7}",trace_pc, memory[trace_pc], get_opcode_debug_string(trace_pc, &memory, register), ts);
 		println!("{}", s);
 	}
 
@@ -90,7 +99,7 @@ fn call_trace(v: &[usize], ptr: usize, memory: Vec<u16>, pc: usize, register:&Ve
 		/*if p == (ptr-1) {
 			ts = format!(" <------ trace pointer");
 		}*/
-		let mut s = format!("{:<7}{:<7}{:<7}{:<30}|",trace_pc, memory[trace_pc], get_opcode_debug_string(trace_pc, &memory, register), ts);
+		let mut s = format!("{:<7}{:<7}{:<7}{:<7}",trace_pc, memory[trace_pc], get_opcode_debug_string(trace_pc, &memory, register), ts);
 		println!("{}", s);
 	}
 }
@@ -101,6 +110,7 @@ fn main() {
 	let mut memory: Vec<u16> = Vec::with_capacity(32768);
 	let mut pc = 0; // program counter
 	let mut register: Vec<u16> = vec![0,0,0,0,0,0,0,0];
+	let mut stack:Vec<u16> = Vec::with_capacity(1024);
 	f.read_to_end(&mut v).unwrap();
 
 	let mut i = 0;
@@ -157,7 +167,7 @@ fn main() {
 
 					let a = memory[pc+1];
 					let b = memory[pc+2];
-					println!("pc = {}, op = {}, a = {}, b = {}", pc, memory[pc], a, b);
+					//println!("pc = {}, op = {}, a = {}, b = {}", pc, memory[pc], a, b);
 					if a < REG_OFFSET {
 						println!("a = {}", a);
 						register[a as usize] = get_val(b, &register);
@@ -165,7 +175,7 @@ fn main() {
 					}
 					else {
 						let reg_num = (a-REG_OFFSET) as usize;
-						println!("reg num = {}", reg_num);
+						//println!("reg num = {}", reg_num);
 						match reg_num {
 							0...8 => { register[reg_num] = get_val(b, &register); pc += 3; },
 							_ => { pc = 1118; }
@@ -174,6 +184,55 @@ fn main() {
 					continue;
 				}
 
+				2 => { // push a onto the stack
+					trace[traceptr] = pc;
+					traceptr += 1;
+					let a = memory[pc+1];
+					stack.push(get_val(a, &register));
+					pc += 2;
+					continue;
+				},
+
+				3 => { // pop from stack, store in a.  empty stack = error
+					trace[traceptr] = pc;
+					traceptr += 1;
+					let a = memory[pc+1];
+					let reg_num = (a-REG_OFFSET) as usize;
+					match stack.pop() {
+						Some(val) => register[reg_num] = val,
+						None => panic!("error poping from stack, adr = {}\n", pc)
+					}
+				}
+				4 => { // set a to 1 if b is equal to c; set it to 0 otherwise
+					trace[traceptr] = pc;
+					traceptr += 1;
+
+					let a = memory[pc+1];
+					let b = memory[pc+2];
+					let c = memory[pc+3];
+
+					if a < REG_OFFSET {
+						println!("a = {}", a);
+						register[a as usize] = get_val(b, &register);
+						pc += 3;
+					}
+					else {
+						let reg_num = (a-REG_OFFSET) as usize;
+						match reg_num {
+							0...8 => {
+								if get_val(b, &register) == get_val(c, &register) {
+										register[reg_num] = 1;
+								}
+								else {
+									register[reg_num] = 0;
+								}
+								pc += 4;
+								continue;
+							},
+							_ => { panic!("invalid input to 4\n"); }
+						}
+					}
+				}
 				6 => { // jmp to
 					trace[traceptr] = pc;
 					traceptr += 1;
@@ -219,7 +278,6 @@ fn main() {
 					let b = memory[pc+2];
 					let c = memory[pc+3];
 
-					println!("pc = {}, op = {}, a = {}, b = {}, c = {}", pc, memory[pc], a, b, c);
 					if a < REG_OFFSET {
 						println!("a = {}", a);
 						register[a as usize] = get_val(b, &register);
@@ -227,10 +285,12 @@ fn main() {
 					}
 					else {
 						let reg_num = (a-REG_OFFSET) as usize;
-						println!("reg num = {}", reg_num);
 						match reg_num {
-							0...8 => { register[reg_num] = (get_val(b, &register) + get_val(c, &register)) % REG_OFFSET ; pc += 4; },
-							_ => { pc = 543; }
+							0...8 => {
+								register[reg_num] = (get_val(b, &register) + get_val(c, &register)) % REG_OFFSET;
+								pc += 4;
+							},
+							_ => { panic!("invalid input to 9\n") }
 						}
 					}
 
