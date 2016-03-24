@@ -38,35 +38,53 @@ fn get_opcode_debug_string(adr:usize, memory: &Vec<u16>, register:&Vec<u16>) -> 
 	//println!("adr = {}, op = {}, adr+1 = {}, adr+2 = {}", adr, memory[adr], memory[adr+1], memory[adr+2]);
 	match memory[adr] {
 		1 => { // set reg a to the value of b
-			format!("set w{} to {}", memory[adr], memory[adr+1])
+			format!("set w{} to {}", memory[adr+1], memory[adr+2])
 		}
-
 		2 => { // push a onto the stack
 			format!("push {} onto stack", memory[adr+1])
 		}
-
+		3 => { // pop from stack, store in a.  empty stack = error
+			format!("pop, store in {}", memory[adr+1])
+		}
 		4 => {
 			format!("set {} to 1 if {} == {}, else 0", memory[adr+1], memory[adr+2], memory[adr+3])
+		}
+		5 => {
+			format!("set {} to 1 if {} > {}, else 0", memory[adr+1], memory[adr+2], memory[adr+3])
 		}
 		6 => { // jmp to
 			format!("jmp to {}", get_val(memory[adr+1], register))
 		}
-
 		7 => {  // jmp to b if a is != 0
 			format!("jmp to {} if {} |= 0", memory[adr+2], memory[adr+1])
 		}
-
 		8 => {	// jmp to b if a == 0
 			format!("jmp to {} if {} == 0", memory[adr+2], memory[adr+1])
 		}
 		9 => { // set reg a to the value of b + c
 			format!("assign {} to {} + {}", memory[adr+1], memory[adr+2], memory[adr+3])
 		}
-
+		//10 => {
+		//11 => {
+		12 => { // stores into a the bitwise and of b and c
+			format!("{} = {} AND {}", memory[adr+1], memory[adr+2], memory[adr+3])
+		}
+		13 => { // stores into a the bitwise or of b and c
+			format!("{} = {} OR {}", memory[adr+1], memory[adr+2], memory[adr+3])
+		}
+		14 => { // stores 15-bit bitwise inverse of b in a
+			format!("{} = NOT {}", memory[adr+1], memory[adr+2])
+		}
+		//15 => {
+		//16 => {
+		17 => { //write the address of the next instruction to the stack and jump to a
+			format!("write address of {} to stack, jump to {}", adr+2, memory[adr+1])
+		}
+		//18 => {
 		19 => {	// print to terminal
 			format!("{}", (memory[adr+1] as u8) as char)
 		}
-
+		//20 => {
 		21 => { // nop
 			format!("nop")
 		}
@@ -149,10 +167,11 @@ fn main() {
 			}
 			traceptr &= (TRACE_SIZE-1);
 			totalExecutions += 1;
+			trace[traceptr] = pc;
+			traceptr += 1;
 			match memory[pc] {
 				0 => { // halt
-					trace[traceptr] = pc;
-					traceptr += 1;
+					//call_trace(&trace, traceptr, memory.clone(), pc, &register);
 					println!("");
 					//call_trace(&trace, traceptr, memory, pc, &register);
 
@@ -162,9 +181,6 @@ fn main() {
 				}
 
 				1 => {	// set reg a to the value of b
-					trace[traceptr] = pc;
-					traceptr += 1;
-
 					let a = memory[pc+1];
 					let b = memory[pc+2];
 					//println!("pc = {}, op = {}, a = {}, b = {}", pc, memory[pc], a, b);
@@ -185,8 +201,6 @@ fn main() {
 				}
 
 				2 => { // push a onto the stack
-					trace[traceptr] = pc;
-					traceptr += 1;
 					let a = memory[pc+1];
 					stack.push(get_val(a, &register));
 					pc += 2;
@@ -194,19 +208,16 @@ fn main() {
 				},
 
 				3 => { // pop from stack, store in a.  empty stack = error
-					trace[traceptr] = pc;
-					traceptr += 1;
 					let a = memory[pc+1];
 					let reg_num = (a-REG_OFFSET) as usize;
 					match stack.pop() {
 						Some(val) => register[reg_num] = val,
 						None => panic!("error poping from stack, adr = {}\n", pc)
 					}
+					pc += 2;
+					continue;
 				}
 				4 => { // set a to 1 if b is equal to c; set it to 0 otherwise
-					trace[traceptr] = pc;
-					traceptr += 1;
-
 					let a = memory[pc+1];
 					let b = memory[pc+2];
 					let c = memory[pc+3];
@@ -229,19 +240,39 @@ fn main() {
 								pc += 4;
 								continue;
 							},
-							_ => { panic!("invalid input to 4\n"); }
+							_ => { panic!("invalid input to eq\n"); }
 						}
 					}
 				}
+
+				5 => { //set a to 1 if b is greater than c; set it to 0 otherwise
+					let a = memory[pc+1];
+					let b = memory[pc+2];
+					let c = memory[pc+3];
+
+					let reg_num = (a-REG_OFFSET) as usize;
+					match reg_num {
+						0...8 => {
+							if get_val(b, &register) > get_val(c, &register) {
+									register[reg_num] = 1;
+							}
+							else {
+								register[reg_num] = 0;
+							}
+							pc += 4;
+							continue;
+						},
+						_ => { panic!("invalid input to gt\n"); }
+					}
+
+
+				}
+
 				6 => { // jmp to
-					trace[traceptr] = pc;
-					traceptr += 1;
 					pc = memory[pc+1] as usize;
 					continue;
 				},
 				7 => {  // jmp to b if a is != 0
-					trace[traceptr] = pc;
-					traceptr += 1;
 					let a = memory[pc+1];
 					let b = memory[pc+2];
 
@@ -256,8 +287,6 @@ fn main() {
 				}
 
 				8 => {	// jmp to b if a == 0
-					trace[traceptr] = pc;
-					traceptr += 1;
 					let a = memory[pc+1];
 					let b = memory[pc+2];
 
@@ -271,9 +300,6 @@ fn main() {
 				}
 
 				9 => { // assign in a the sum of b and c (modulo 32768)
-					trace[traceptr] = pc;
-					traceptr += 1;
-
 					let a = memory[pc+1];
 					let b = memory[pc+2];
 					let c = memory[pc+3];
@@ -293,27 +319,88 @@ fn main() {
 							_ => { panic!("invalid input to 9\n") }
 						}
 					}
+					continue;
+				}
+
+				10 => { //store into a the product of b and c (modulo 32768)
+					let a = memory[pc+1];
+					let b = memory[pc+2];
+					let c = memory[pc+3];
 
 
+					let reg_num = (a-REG_OFFSET) as usize;
+					match reg_num {
+						0...8 => {
+							register[reg_num] = (get_val(b, &register) * get_val(c, &register)) % REG_OFFSET;
+							pc += 4;
+						},
+						_ => { panic!("invalid input to 9\n") }
+					}
+				continue;
+				}
 
+				12 => { // stores into a the bitwise and of b and c
+					let a = memory[pc+1];
+					let b = memory[pc+2];
+					let c = memory[pc+3];
+					let reg_num = (a-REG_OFFSET) as usize;
+					match reg_num {
+						0...8 => {
+							register[reg_num] = (get_val(b, &register) & get_val(c, &register));
+							pc += 4;
+							continue;
+						},
+						_ => { panic!("invalid input to eq\n"); }
+					}
+				}
+
+				13 => { //stores into a the bitwise or of b and c
+					let a = memory[pc+1];
+					let b = memory[pc+2];
+					let c = memory[pc+3];
+					let reg_num = (a-REG_OFFSET) as usize;
+					match reg_num {
+						0...8 => {
+							register[reg_num] = (get_val(b, &register) | get_val(c, &register));
+							pc += 4;
+							continue;
+						},
+						_ => { panic!("invalid input to eq\n"); }
+					}
+				}
+
+				14 => { // stores 15-bit bitwise inverse of b in a
+					let a = memory[pc+1];
+					let b = memory[pc+2];
+					let reg_num = (a-REG_OFFSET) as usize;
+					match reg_num {
+						0...8 => {
+							register[reg_num] = (!get_val(b, &register)) & (0x7FFF);
+							pc += 3;
+							continue;
+						},
+						_ => { panic!("invalid input to eq\n"); }
+					}
+				}
+				17 => { //write the address of the next instruction to the stack and jump to a
+					let a = memory[pc+1];
+					stack.push((pc+2) as u16);
+					pc = get_val(a, &register) as usize;
 					continue;
 				}
 
 				19 => { // write char to terminal
 					let c: u8 = (memory[pc+1] & 0xff) as u8;
 					print!("{}", c as char);
-					trace[traceptr] = pc;
-					traceptr += 1;
 					pc += 2;
 					continue;
-				},
+				}
+
 				21 => { // nop
-					trace[traceptr] = pc;
-					traceptr += 1;   // nop
+
 				}
 				_ => {
-					trace[traceptr] = pc;
-					traceptr += 1;
+
 				}
 			}
 			pc += 1;
